@@ -1,0 +1,37 @@
+Each instruction consists of 4 bytes and 3 32-bit values, for a total of 16 bytes.
+The values are: destination, arg1, arg2.
+The instruction consists of an action, then a type for each value. In US Ascii:
+
+'_' No-op
+'=' Set
+'@' Block Transfer
+'!' Not
+'&' And
+'|' Inclusive Or
+'^' Exclusive Or
+'<' Shift Left
+'>' Shift Right
+'~' Negate
+'+' Add
+'-' Subtract
+'*' Multiply
+'/' Divide
+'%' Remainder
+'#' Halt
+
+Types:
+Immediate
+'U' 32-bit unsigned integer
+'I' 32-bit integer
+'F' 32-bit floating point
+Indirect
+'z' 64-bit unsigned integer
+'l' 64-bit integer
+'d' 64-bit floating point
+'u' 32-bit unsigned integer
+'i' 32-bit integer
+'f' 32-bit floating point
+'m' 16-bit unsigned integer
+'s' 16-bit integer
+'c' 8-bit unsigned integer
+'b' 8-bit integer
