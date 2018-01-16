@@ -1,22 +1,16 @@
 PREFIX?=/usr/local
-INCLUDEDIR?=${PREFIX}/include
-LIBDIR?=${PREFIX}/lib
+BINDIR?=${PREFIX}/bin
 DESTDIR?=
-PKGCONFIGDIR?=${LIBDIR}/pkgconfig
-SHAREDSUFFIX?=.so
-STATICSUFFIX?=.a
-VERSIONPOS?=suffix
 
 CC?=cc
-CFLAGS?=-O0 -g -ffast-math -freciprocal-math -fno-trapping-math
+CFLAGS?=-O0 -g
 LDFLAGS?=
-AR?=ar
-ARFLAGS?=rv
 LEX?=lex
 LEXFLAGS=-8 -X
 
 CFLAGS+=-Wall -Wextra -Wmissing-prototypes -Wredundant-decls
 CFLAGS+=-Iinclude
 
-LIBS=-lm
-STATIC=-lm
+NEVM_LIBS?=-lcurses
+NEASM_LIBS?=-ll
+TESTLIBS?=
