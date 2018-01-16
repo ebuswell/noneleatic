@@ -12,7 +12,7 @@ start:
 	&uuU R R 0x20
 ; now jump to the appropriate place
 	+uuU IP R BGTE
-BGTE:	=iIU R 0
-	#UUU
-BLT:	=iIU R 1
-	#UUU
+BGTE:	=iIU R 0 0
+	#UUU 0 0 0
+BLT:	=iIU R 1 0
+	#UUU 0 0 0

@@ -1,5 +1,6 @@
 /* nevm.c virtual machine for the noneleatic languages */
 #include <curses.h>
+#include <time.h>
 #include <ctype.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -22,8 +23,10 @@ bool debug = false;
 WINDOW *screen_win;
 WINDOW *debug_win;
 
-#define DEBUG_WAIT 10
+#define DEBUG_WAIT 2
 #define DEBUG_COLS 45
+
+struct timespec delay = { 0, 0 };
 
 typedef struct {
 	char op;
@@ -491,10 +494,8 @@ static void run() {
 		if (debug_win != NULL) {
 			print_mem();
 		}
-		if (debug) {
-			sleep(DEBUG_WAIT);
-		}
 		update_screen();
+		nanosleep(&delay, NULL);
 		ip = indirect(0, uint32_t);
 		r = check_brk(ip + sizeof(operation));
 		if (r != 0) {
@@ -614,7 +615,7 @@ static void run() {
 }
 
 static void usage() {
-	fatal("%s [-g] [-l location] file [[-l location] file] ...\n", argv0);
+	fatal("%s [-d delay] [-g] [-l location] file [[-l location] file] ...\n", argv0);
 }
 
 #define CHUNK_SIZE 4096
@@ -648,10 +649,19 @@ static void load_file(uint32_t *mem_cursor, char *filename) {
 
 int main(int argc, char **argv) {
 	uint32_t mem_cursor = 0;
+	bool wait_set = false;
+	double wait, wait_f;
 
 	ARGBEGIN {
 	case 'l':
 		mem_cursor = atoi(EARGF(usage()));
+		break;
+	case 'd':
+		// set delay
+		wait_f = modf(atof(EARGF(usage())), &wait);
+		delay.tv_sec = (typeof(delay.tv_sec))wait;
+		delay.tv_nsec = (typeof(delay.tv_nsec))(wait_f*1000000000.0f);
+		wait_set = true;
 		break;
 	case 'g':
 		// enter debugging mode
@@ -667,6 +677,10 @@ int main(int argc, char **argv) {
 	screen_win = stdscr;
 	debug_win = NULL;
 	if (debug) {
+		// set wait time
+		if (!wait_set) {
+			delay.tv_sec = DEBUG_WAIT;
+		}
 		// split into two windows, if possible
 		if (getmaxx(stdscr) > SCREEN_COLS + DEBUG_COLS) {
 			// vertical windows
