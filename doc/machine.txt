@@ -1,3 +1,7 @@
+======================
+= Instruction Format =
+======================
+
 Each instruction consists of 4 bytes and 3 32-bit values, for a total of 16 bytes.
 The values are: destination, arg1, arg2.
 The instruction consists of an action, then a type for each value. In US Ascii:
@@ -35,3 +39,17 @@ Indirect
 's' 16-bit integer
 'c' 8-bit unsigned integer
 'b' 8-bit integer
+
+Examples:
+
+=================
+= Memory Layout =
+=================
+
+The machine has a completely flat memory layout in which code and data are
+freely mixed. All state of the machine, including its input and output, are
+stored in the memory.
+
+Location 0x0-0x4: IP - the instruction pointer.
+
+Location 0xF000-0xF7d0: the screen lies here.

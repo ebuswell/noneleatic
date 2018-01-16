@@ -1,4 +1,7 @@
 /* nevm.c virtual machine for the noneleatic languages */
+#include <curses.h>
+#include <ctype.h>
+#include <unistd.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -7,6 +10,16 @@
 #include <stdio.h>
 #include <math.h>
 #include "arg.h"
+
+#define SCREEN_ROWS 80
+#define SCREEN_COLS 50
+#define SCREEN_START 0xF000
+#define SCREEN_LEN (SCREEN_ROWS * SCREEN_COLS)
+#define SCREEN_END (SCREEN_START + SCREEN_LEN)
+
+bool debug = false;
+
+#define DEBUG_WAIT 5
 
 typedef struct {
 	char op;
@@ -32,7 +45,7 @@ typedef struct {
 
 static struct {
 	uint32_t brk_max;
-} config = { 4 * 1024 * 1024 };
+} config = { 0xFFFF };
 
 static struct {
 	char *mem;
@@ -68,6 +81,27 @@ static void assert_brk(uint32_t addr, uint32_t addr_addr) {
 	}
 }
 
+static bool is_arg_type(char arg_type) {
+	switch (arg_type) {
+	case 'U':
+	case 'I':
+	case 'F':
+	case 'z':
+	case 'l':
+	case 'd':
+	case 'u':
+	case 'i':
+	case 'f':
+	case 'h':
+	case 's':
+	case 'c':
+	case 'b':
+		return true;
+	default:
+		return false;
+	}
+}
+
 static void validate_arg(uint32_t addr, char arg_type,
 			 uint32_t addr_addr, uint32_t arg_type_addr) {
 	switch (arg_type) {
@@ -99,7 +133,7 @@ static void validate_arg(uint32_t addr, char arg_type,
 	}
 }
 
-static void validate_op(char op, uint32_t op_addr) {
+static bool is_op(char op) {
 	switch (op) {
 	case '_': /* No op */
 	case '=': /* Assign */
@@ -117,18 +151,24 @@ static void validate_op(char op, uint32_t op_addr) {
 	case '/': /* Divide */
 	case '%': /* Remainder */
 	case '#': /* Halt */
-		break;
+		return true;
 	default:
+		return false;
+	}
+}
+
+static void validate_op(char op, uint32_t op_addr) {
+	if (!is_op(op)) {
 		fatal("Invalid operation at %u: %c\n",
 		      op_addr, op);
 	}
 }
 
 #define caddr2addr(caddr)						\
-	((uint32_t) (((char *) (caddr)) - machine.mem))
+	 ((uint32_t) (((char *) (caddr)) - machine.mem))
 
 #define addr2caddr(addr)						\
-	(machine.mem + (addr))
+	 (machine.mem + (addr))
 
 #define indirect(addr, ctype)						\
 	(*((ctype *) addr2caddr(addr)))
@@ -282,7 +322,7 @@ do {									\
 			    cop val(op->src2, op->src2_type, int32_t);	\
 		break;							\
 	case 'F':							\
-		op->dst.f = val(op->src1, op->src1_type, float)	\
+		op->dst.f = val(op->src1, op->src1_type, float)		\
 			    cop val(op->src2, op->src2_type, float);	\
 		break;							\
 	case 'z':							\
@@ -292,7 +332,7 @@ do {									\
 		break;							\
 	case 'l':							\
 		indirect(op->dst.u, int64_t)				\
-			= val(op->src1, op->src1_type, int64_t)	\
+			= val(op->src1, op->src1_type, int64_t)		\
 			  cop val(op->src2, op->src2_type, int64_t);	\
 		break;							\
 	case 'd':							\
@@ -307,7 +347,7 @@ do {									\
 		break;							\
 	case 'i':							\
 		indirect(op->dst.u, int32_t)				\
-			= val(op->src1, op->src1_type, int32_t)	\
+			= val(op->src1, op->src1_type, int32_t)		\
 			  cop val(op->src2, op->src2_type, int32_t);	\
 		break;							\
 	case 'f':							\
@@ -322,12 +362,12 @@ do {									\
 		break;							\
 	case 's':							\
 		indirect(op->dst.u, int16_t)				\
-			= val(op->src1, op->src1_type, int16_t)	\
+			= val(op->src1, op->src1_type, int16_t)		\
 			  cop val(op->src2, op->src2_type, int16_t);	\
 		break;							\
 	case 'c':							\
 		indirect(op->dst.u, uint8_t)				\
-			= val(op->src1, op->src1_type, uint8_t)	\
+			= val(op->src1, op->src1_type, uint8_t)		\
 			  cop val(op->src2, op->src2_type, uint8_t);	\
 		break;							\
 	case 'b':							\
@@ -356,7 +396,7 @@ do {									\
 		break;							\
 	case 'l':							\
 		indirect(op->dst.u, int64_t)				\
-			= val(op->src1, op->src1_type, int64_t)	\
+			= val(op->src1, op->src1_type, int64_t)		\
 			  cop val(op->src2, op->src2_type, int64_t);	\
 		break;							\
 	case 'u':							\
@@ -366,7 +406,7 @@ do {									\
 		break;							\
 	case 'i':							\
 		indirect(op->dst.u, int32_t)				\
-			= val(op->src1, op->src1_type, int32_t)	\
+			= val(op->src1, op->src1_type, int32_t)		\
 			  cop val(op->src2, op->src2_type, int32_t);	\
 		break;							\
 	case 'h':							\
@@ -376,12 +416,12 @@ do {									\
 		break;							\
 	case 's':							\
 		indirect(op->dst.u, int16_t)				\
-			= val(op->src1, op->src1_type, int16_t)	\
+			= val(op->src1, op->src1_type, int16_t)		\
 			  cop val(op->src2, op->src2_type, int16_t);	\
 		break;							\
 	case 'c':							\
 		indirect(op->dst.u, uint8_t)				\
-			= val(op->src1, op->src1_type, uint8_t)	\
+			= val(op->src1, op->src1_type, uint8_t)		\
 			  cop val(op->src2, op->src2_type, uint8_t);	\
 		break;							\
 	case 'b':							\
@@ -394,9 +434,44 @@ do {									\
 
 static void print_mem() {
 	uint32_t i;
-	for (i = 0; i < machine.brk; i++) {
-		printf("%c", indirect(i, char));
+	int j, row;
+	erase();
+	for (i = 0, row = 0; i < machine.brk && row < getmaxy(stdscr);
+	     row++) {
+		if (is_op(indirect(i, char))
+		    && is_arg_type(indirect(i + 1, char))
+		    && is_arg_type(indirect(i + 2, char))
+		    && is_arg_type(indirect(i + 3, char))) {
+			// operator
+			mvprintw(row, 0, "%.4s", addr2caddr(i));
+			for (j = 0, i += 4; j < 3; j++, i += 4) {
+				printw(" 0x%x (%d)", indirect(i, uint32_t),
+				       indirect(i, uint32_t));
+			}
+	    	} else if (isprint(indirect(i, char))
+		    && isprint(indirect(i + 1, char))
+		    && isprint(indirect(i + 2, char))
+		    && isprint(indirect(i + 3, char))) {
+			// printable
+			mvprintw(row, 0, "%.4s", addr2caddr(i));
+			i += 4;
+		} else {
+			// number
+			mvprintw(row, 0, "0x%x (%d)", indirect(i, uint32_t),
+				 indirect(i, uint32_t));
+			i += 4;
+		}
 	}
+	refresh();
+}
+
+static void update_screen() {
+	int i;
+	for (i = 0; i < SCREEN_ROWS; i++) {
+		mvaddnstr(i, 0, addr2caddr(SCREEN_START + i*SCREEN_COLS),
+			  SCREEN_COLS);
+	}
+	refresh();
 }
 
 static void run() {
@@ -404,7 +479,12 @@ static void run() {
 	uint32_t ip;
 	int r;
 	for (;;) {
-		print_mem();
+		if (debug) {
+			print_mem();
+			sleep(DEBUG_WAIT);
+		} else {
+			update_screen();
+		}
 		ip = indirect(0, uint32_t);
 		r = check_brk(ip + sizeof(operation));
 		if (r != 0) {
@@ -524,7 +604,7 @@ static void run() {
 }
 
 static void usage() {
-	fatal("%s [-l location] file [[-l location] file] ...\n", argv0);
+	fatal("%s [-g] [-l location] file [[-l location] file] ...\n", argv0);
 }
 
 #define CHUNK_SIZE 4096
@@ -578,6 +658,10 @@ int main(int argc, char **argv) {
 					mem_cursor = atoi(argv[0]);
 				}
 				break;
+			case 'g':
+				// enter debugging mode
+				debug = true;
+				break;
 			default:
 				usage();
 			}
@@ -591,6 +675,8 @@ fileonly:
 		load_file(&mem_cursor, argv[0]);
 	}
 run:
+	initscr(); curs_set(0); cbreak(); noecho(); clear();
 	run();
+	endwin();
 	exit(EXIT_SUCCESS);
 }

@@ -12,7 +12,7 @@ NEVM_VERSION=0.1
 
 NEVM_SRCS=src/nevm.c
 
-NEVM_LIBS=
+NEVM_LIBS=-lcurses
 
 NEASM_VERSION=0.1
 
@@ -34,9 +34,6 @@ all: nevm neasm
 	${LEX} ${LEXFLAGS} -o $@ $<
 .c.o:
 	${CC} ${CFLAGS} -c -o $@ $<
-
-.c.pic.o:
-	${CC} ${CFLAGS} -fPIC -c -o $@ $<
 
 nevm: ${NEVM_OBJS}
 	${CC} ${CFLAGS} ${LDFLAGS} ${NEVM_OBJS} ${NEVM_LIBS} -o nevm
