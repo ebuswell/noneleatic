@@ -246,28 +246,31 @@ int main(int argc, char **argv) {
 		break;
 	default:
 		usage();
-	} ARGEND
+	ARG:
+		if (infile != NULL) {
+			usage();
+		}
+		infile = argv[0];
+		if (strcmp(infile, "-") == 0) {
+			in = stdin;
+			infile = "<stdin>";
+		} else {
+			in = fopen(infile, "r");
+			if (in == NULL) {
+				fatal("Could not open file \"%s\": %s\n",
+			      	      infile, strerror(errno));
+			}
+		}
+	} ARGEND;
 
-	/* Set default output */
+	/* Set default output and input */
 	if (out == NULL) {
 		out = stdout;
 		outfile = "<stdout>";
 	}
-
-	/* Get input */
-	if (argc != 1) {
-		usage();
-	}
-	infile = argv[0];
-	if (strcmp(argv[0], "-") == 0) {
+	if (in == NULL) {
 		in = stdin;
 		infile = "<stdin>";
-	} else {
-		in = fopen(infile, "r");
-		if (in == NULL) {
-			fatal("Could not open file \"%s\": %s\n",
-			      infile, strerror(errno));
-		}
 	}
 
 	/* Create AST */

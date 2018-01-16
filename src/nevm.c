@@ -11,15 +11,19 @@
 #include <math.h>
 #include "arg.h"
 
-#define SCREEN_ROWS 80
-#define SCREEN_COLS 50
+#define SCREEN_ROWS 25
+#define SCREEN_COLS 80
 #define SCREEN_START 0xF000
 #define SCREEN_LEN (SCREEN_ROWS * SCREEN_COLS)
 #define SCREEN_END (SCREEN_START + SCREEN_LEN)
 
 bool debug = false;
 
-#define DEBUG_WAIT 5
+WINDOW *screen_win;
+WINDOW *debug_win;
+
+#define DEBUG_WAIT 10
+#define DEBUG_COLS 45
 
 typedef struct {
 	char op;
@@ -436,43 +440,47 @@ do {									\
 static void print_mem() {
 	uint32_t i;
 	int j, row;
-	erase();
-	for (i = 0, row = 0; i < machine.brk && row < getmaxy(stdscr);
+	werase(debug_win);
+	for (i = 0, row = 0; i < machine.brk && row < getmaxy(debug_win);
 	     row++) {
+		mvwprintw(debug_win, row, 0, "0x%03x: ", i);
 		if (is_op(indirect(i, char))
 		    && is_arg_type(indirect(i + 1, char))
 		    && is_arg_type(indirect(i + 2, char))
 		    && is_arg_type(indirect(i + 3, char))) {
 			// operator
-			mvprintw(row, 0, "%.4s", addr2caddr(i));
+			wprintw(debug_win, "%.4s", addr2caddr(i));
 			for (j = 0, i += 4; j < 3; j++, i += 4) {
-				printw(" 0x%x (%d)", indirect(i, uint32_t),
-				       indirect(i, uint32_t));
+				wprintw(debug_win, " 0x%x",
+					indirect(i, uint32_t),
+					indirect(i, uint32_t));
 			}
 	    	} else if (isprint(indirect(i, char))
 		    && isprint(indirect(i + 1, char))
 		    && isprint(indirect(i + 2, char))
 		    && isprint(indirect(i + 3, char))) {
 			// printable
-			mvprintw(row, 0, "%.4s", addr2caddr(i));
+			wprintw(debug_win, "%.4s", addr2caddr(i));
 			i += 4;
 		} else {
 			// number
-			mvprintw(row, 0, "0x%x (%d)", indirect(i, uint32_t),
+			wprintw(debug_win, "0x%x", indirect(i, uint32_t),
 				 indirect(i, uint32_t));
 			i += 4;
 		}
 	}
-	refresh();
+	wrefresh(debug_win);
 }
 
 static void update_screen() {
 	int i;
+	werase(screen_win);
 	for (i = 0; i < SCREEN_ROWS; i++) {
-		mvaddnstr(i, 0, addr2caddr(SCREEN_START + i*SCREEN_COLS),
-			  SCREEN_COLS);
+		mvwaddnstr(screen_win, i, 0,
+			   addr2caddr(SCREEN_START + i*SCREEN_COLS),
+			   SCREEN_COLS);
 	}
-	refresh();
+	wrefresh(screen_win);
 }
 
 static void run() {
@@ -480,12 +488,13 @@ static void run() {
 	uint32_t ip;
 	int r;
 	for (;;) {
-		if (debug) {
+		if (debug_win != NULL) {
 			print_mem();
-			sleep(DEBUG_WAIT);
-		} else {
-			update_screen();
 		}
+		if (debug) {
+			sleep(DEBUG_WAIT);
+		}
+		update_screen();
 		ip = indirect(0, uint32_t);
 		r = check_brk(ip + sizeof(operation));
 		if (r != 0) {
@@ -639,45 +648,43 @@ static void load_file(uint32_t *mem_cursor, char *filename) {
 
 int main(int argc, char **argv) {
 	uint32_t mem_cursor = 0;
-	argv0 = argv[0];
-	argv++, argc--;
-	for (; argc > 0; argv++, argc--) {
-		if (argv[0][0] == '-') {
-			switch (argv[0][1]) {
-			case '-':
-				/* No more arguments */
-				argv++, argc--;
-				goto fileonly;
-			case 'l':
-				if (argv[0][2] != '\0') {
-					mem_cursor = atoi(argv[0]+2);
-				} else {
-					argv++, argc--;
-					if (argc == 0) {
-						usage();
-					}
-					mem_cursor = atoi(argv[0]);
-				}
-				break;
-			case 'g':
-				// enter debugging mode
-				debug = true;
-				break;
-			default:
-				usage();
-			}
-		} else {
-			load_file(&mem_cursor, argv[0]);
+
+	ARGBEGIN {
+	case 'l':
+		mem_cursor = atoi(EARGF(usage()));
+		break;
+	case 'g':
+		// enter debugging mode
+		debug = true;
+		break;
+	default:
+		usage();
+	ARG:
+		load_file(&mem_cursor, argv[0]);
+	} ARGEND;
+
+	initscr(); curs_set(0); cbreak(); noecho(); clear();
+	screen_win = stdscr;
+	debug_win = NULL;
+	if (debug) {
+		// split into two windows, if possible
+		if (getmaxx(stdscr) > SCREEN_COLS + DEBUG_COLS) {
+			// vertical windows
+			screen_win = newwin(getmaxy(stdscr), SCREEN_COLS,
+					    0, 0);
+			debug_win = newwin(getmaxy(stdscr), DEBUG_COLS,
+					   0, getmaxx(stdscr) - DEBUG_COLS);
+		} else if (getmaxy(stdscr) > SCREEN_ROWS) {
+			// horizontal windows
+			screen_win = newwin(SCREEN_ROWS, getmaxx(stdscr),
+					    0, 0);
+			debug_win = newwin(getmaxy(stdscr) - SCREEN_ROWS - 1,
+					   getmaxx(stdscr),
+					   SCREEN_ROWS + 1, 0);
 		}
 	}
-	goto run;
-fileonly:
-	for (; argc > 0; argv++, argc--) {
-		load_file(&mem_cursor, argv[0]);
-	}
-run:
-	initscr(); curs_set(0); cbreak(); noecho(); clear();
 	run();
 	endwin();
+
 	exit(EXIT_SUCCESS);
 }
