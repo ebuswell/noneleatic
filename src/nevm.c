@@ -53,6 +53,7 @@ static struct {
 } machine = { NULL, 0 };
 
 #define fatal(...) do {							\
+	endwin();							\
 	fprintf(stderr, __VA_ARGS__);					\
 	exit(EXIT_FAILURE);						\
 } while (0)
