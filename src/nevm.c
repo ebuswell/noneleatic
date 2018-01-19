@@ -1,4 +1,27 @@
-/* nevm.c virtual machine for the noneleatic languages */
+/****************************************************************************
+ * nevm.c virtual machine for the noneleatic languages                      *
+ *                                                                          *
+ * This virtual machine follows closely to the spec in doc/machine.txt      *
+ * It makes no effort to make up for big/little endian differences in the   *
+ * underlying machine, and so some programs won't work the same when the VM *
+ * is compiled for a machine of different endianness from the one on which  *
+ * the program was written.                                                 *
+ *                                                                          *
+ * The general run strategy is:                                             *
+ * (1) update displays                                                      *
+ * (2) read IP, read and parse opcode                                       *
+ * (3) advance IP - it is crucial to advance IP before actually executing   *
+ *     the operation, as this way changes the operation makes to the IP     *
+ *     will be reflected in the next opcode read.                           *
+ * (3) execute opcode using underlying c instruction, first casting all     *
+ *     data types to the opcode's return type.                              *
+ *                                                                          *
+ * The memory is managed as a flat, malloc'd pointer. Whenever a read or    *
+ * write is made outside of the malloc'd area, the pointer is realloc'd to  *
+ * be large enough to accomodate the memory. A proper implementation would  *
+ * allow for sparsely allocated memory, but this isn't a proper             *
+ * implementation.                                                          *
+ ****************************************************************************/
 #include <curses.h>
 #include <time.h>
 #include <ctype.h>
@@ -17,16 +40,8 @@
 #define SCREEN_START 0xF000
 #define SCREEN_LEN (SCREEN_ROWS * SCREEN_COLS)
 #define SCREEN_END (SCREEN_START + SCREEN_LEN)
-
-bool debug = false;
-
-WINDOW *screen_win;
-WINDOW *debug_win;
-
-#define DEBUG_WAIT 2
-#define DEBUG_COLS 45
-
-struct timespec delay = { 0, 0 };
+#define DEBUG_DEFAULT_WAIT 2
+#define DEBUG_SCREEN_COLS 45
 
 typedef struct {
 	char op;
@@ -50,20 +65,80 @@ typedef struct {
 	} src2;
 } operation;
 
+/* the debugging screen */
+WINDOW *debugscr = NULL;
+
+/* configuration for the VM */
 static struct {
 	uint32_t brk_max;
-} config = { 0xFFFF };
+	struct timespec delay;
+} config = { 0xFFFF, { 0, 0 } };
 
+/* a representation of the machine */
 static struct {
 	char *mem;
 	uint32_t brk;
-} machine = { NULL, 0 };
+	WINDOW *screen;
+} machine = { NULL, 0, NULL };
 
 #define fatal(...) do {							\
 	endwin();							\
 	fprintf(stderr, __VA_ARGS__);					\
 	exit(EXIT_FAILURE);						\
 } while (0)
+
+
+/* memory translation and addressing */
+
+#define caddr2addr(caddr)						\
+	 ((uint32_t) (((char *) (caddr)) - machine.mem))
+
+#define addr2caddr(addr)						\
+	 (machine.mem + (addr))
+
+#define indirect(addr, ctype)						\
+	(*((ctype *) addr2caddr(addr)))
+
+#define valaddr(arg, type)						\
+	(  (type) == 'U' ? caddr2addr(&(arg).u)				\
+	 : (type) == 'I' ? caddr2addr(&(arg).u)				\
+	 : (type) == 'F' ? caddr2addr(&(arg).u)				\
+	 : (arg).u)
+
+#define valsize(type)							\
+	(  (type) == 'U' ? (uint32_t) 4					\
+	 : (type) == 'I' ? (uint32_t) 4					\
+	 : (type) == 'F' ? (uint32_t) 4					\
+	 : (type) == 'z' ? (uint32_t) 8					\
+	 : (type) == 'l' ? (uint32_t) 8					\
+	 : (type) == 'd' ? (uint32_t) 8					\
+	 : (type) == 'u' ? (uint32_t) 4					\
+	 : (type) == 'i' ? (uint32_t) 4					\
+	 : (type) == 'f' ? (uint32_t) 4					\
+	 : (type) == 'h' ? (uint32_t) 2					\
+	 : (type) == 's' ? (uint32_t) 2					\
+	 : (type) == 'c' ? (uint32_t) 1					\
+	 : (type) == 'b' ? (uint32_t) 1					\
+	 : (uint32_t) 0)
+
+#define val(arg, type, ctype)						\
+	(  (type) == 'U' ? (ctype) (arg).u				\
+	 : (type) == 'I' ? (ctype) (arg).i				\
+	 : (type) == 'F' ? (ctype) (arg).f				\
+	 : (type) == 'z' ? (ctype) indirect((arg).u, uint64_t)		\
+	 : (type) == 'l' ? (ctype) indirect((arg).u, int64_t)		\
+	 : (type) == 'd' ? (ctype) indirect((arg).u, double)		\
+	 : (type) == 'u' ? (ctype) indirect((arg).u, uint32_t)		\
+	 : (type) == 'i' ? (ctype) indirect((arg).u, int32_t)		\
+	 : (type) == 'f' ? (ctype) indirect((arg).u, float)		\
+	 : (type) == 'h' ? (ctype) indirect((arg).u, uint16_t)		\
+	 : (type) == 's' ? (ctype) indirect((arg).u, int16_t)		\
+	 : (type) == 'c' ? (ctype) indirect((arg).u, uint8_t)		\
+	 : (type) == 'b' ? (ctype) indirect((arg).u, int8_t)		\
+	 : (ctype) 0)
+
+
+/* memory management */
 
 static int check_brk(uint32_t addr) {
 	if (addr > machine.brk) {
@@ -84,10 +159,13 @@ static int check_brk(uint32_t addr) {
 
 static void assert_brk(uint32_t addr, uint32_t addr_addr) {
 	if (check_brk(addr) != 0) {
-		fatal("Could not create memory for address at %u: %u\n",
-		      addr_addr, addr);
+		fatal("%u:Could not create memory for address at %u: %u\n",
+		      indirect(0, uint32_t), addr_addr, addr);
 	}
 }
+
+
+/* validation */
 
 static bool is_arg_type(char arg_type) {
 	switch (arg_type) {
@@ -136,8 +214,8 @@ static void validate_arg(uint32_t addr, char arg_type,
 		assert_brk(addr + 1, addr_addr);
 		break;
 	default:
-		fatal("Invalid type at %u: %c\n",
-		      arg_type_addr, arg_type);
+		fatal("%u:Invalid type at %u: %c\n",
+		      indirect(0, uint32_t), arg_type_addr, arg_type);
 	}
 }
 
@@ -167,57 +245,12 @@ static bool is_op(char op) {
 
 static void validate_op(char op, uint32_t op_addr) {
 	if (!is_op(op)) {
-		fatal("Invalid operation at %u: %c\n",
-		      op_addr, op);
+		fatal("%u:Invalid operation at %u: %c\n",
+		      indirect(0, uint32_t), op_addr, op);
 	}
 }
 
-#define caddr2addr(caddr)						\
-	 ((uint32_t) (((char *) (caddr)) - machine.mem))
-
-#define addr2caddr(addr)						\
-	 (machine.mem + (addr))
-
-#define indirect(addr, ctype)						\
-	(*((ctype *) addr2caddr(addr)))
-
-#define valaddr(arg, type)						\
-	(  (type) == 'U' ? caddr2addr(&(arg).u)				\
-	 : (type) == 'I' ? caddr2addr(&(arg).u)				\
-	 : (type) == 'F' ? caddr2addr(&(arg).u)				\
-	 : (arg).u)
-
-#define valsize(type)							\
-	(  (type) == 'U' ? (uint32_t) 4					\
-	 : (type) == 'I' ? (uint32_t) 4					\
-	 : (type) == 'F' ? (uint32_t) 4					\
-	 : (type) == 'z' ? (uint32_t) 8					\
-	 : (type) == 'l' ? (uint32_t) 8					\
-	 : (type) == 'd' ? (uint32_t) 8					\
-	 : (type) == 'u' ? (uint32_t) 4					\
-	 : (type) == 'i' ? (uint32_t) 4					\
-	 : (type) == 'f' ? (uint32_t) 4					\
-	 : (type) == 'h' ? (uint32_t) 2					\
-	 : (type) == 's' ? (uint32_t) 2					\
-	 : (type) == 'c' ? (uint32_t) 1					\
-	 : (type) == 'b' ? (uint32_t) 1					\
-	 : (uint32_t) 0)
-
-#define val(arg, type, ctype)						\
-	(  (type) == 'U' ? (ctype) (arg).u				\
-	 : (type) == 'I' ? (ctype) (arg).i				\
-	 : (type) == 'F' ? (ctype) (arg).f				\
-	 : (type) == 'z' ? (ctype) indirect((arg).u, uint64_t)		\
-	 : (type) == 'l' ? (ctype) indirect((arg).u, int64_t)		\
-	 : (type) == 'd' ? (ctype) indirect((arg).u, double)		\
-	 : (type) == 'u' ? (ctype) indirect((arg).u, uint32_t)		\
-	 : (type) == 'i' ? (ctype) indirect((arg).u, int32_t)		\
-	 : (type) == 'f' ? (ctype) indirect((arg).u, float)		\
-	 : (type) == 'h' ? (ctype) indirect((arg).u, uint16_t)		\
-	 : (type) == 's' ? (ctype) indirect((arg).u, int16_t)		\
-	 : (type) == 'c' ? (ctype) indirect((arg).u, uint8_t)		\
-	 : (type) == 'b' ? (ctype) indirect((arg).u, int8_t)		\
-	 : (ctype) 0)
+/* macros for translating between operations and C operations */
 
 #define unary_op(op, cop)						\
 do {									\
@@ -440,68 +473,91 @@ do {									\
 	}								\
 } while (0)
 
-static void print_mem() {
+/* display update routines */
+
+#define debug_printop(i) do {						\
+	int j;								\
+	wprintw(debugscr, "%.4s", addr2caddr(i));			\
+	i += 4;								\
+	for (j = 1; j < 4; j++) {					\
+		wprintw(debugscr, " ");					\
+		debug_printword(i);					\
+	}								\
+} while (0)
+
+#define debug_printword(i) do {						\
+	if (isprint(indirect(i, char))					\
+	    && isprint(indirect(i + 1, char))				\
+	    && isprint(indirect(i + 2, char))				\
+	    && isprint(indirect(i + 3, char))) {			\
+		/* printable */						\
+		wprintw(debugscr, "%.4s", addr2caddr(i));		\
+	} else {							\
+		/* number */						\
+		wprintw(debugscr, "0x%x", indirect(i, uint32_t));	\
+	}								\
+	i += 4;								\
+} while (0)
+
+
+static void update_debugscr() {
 	uint32_t i;
-	int j, row;
-	werase(debug_win);
-	for (i = 0, row = 0; i < machine.brk && row < getmaxy(debug_win);
+	int row;
+	werase(debugscr);
+	for (i = 0, row = 0; i < machine.brk && row < getmaxy(debugscr);
 	     row++) {
-		mvwprintw(debug_win, row, 0, "0x%03x: ", i);
-		if (is_op(indirect(i, char))
+		mvwprintw(debugscr, row, 0, "0x%03x: ", i);
+		if (i % 16 == 0 && is_op(indirect(i, char))
 		    && is_arg_type(indirect(i + 1, char))
 		    && is_arg_type(indirect(i + 2, char))
 		    && is_arg_type(indirect(i + 3, char))) {
-			// operator
-			wprintw(debug_win, "%.4s", addr2caddr(i));
-			for (j = 0, i += 4; j < 3; j++, i += 4) {
-				wprintw(debug_win, " 0x%x",
-					indirect(i, uint32_t),
-					indirect(i, uint32_t));
-			}
-	    	} else if (isprint(indirect(i, char))
-		    && isprint(indirect(i + 1, char))
-		    && isprint(indirect(i + 2, char))
-		    && isprint(indirect(i + 3, char))) {
-			// printable
-			wprintw(debug_win, "%.4s", addr2caddr(i));
-			i += 4;
-		} else {
-			// number
-			wprintw(debug_win, "0x%x", indirect(i, uint32_t),
-				 indirect(i, uint32_t));
-			i += 4;
+			debug_printop(i);
+	    	} else {
+ 		       debug_printword(i);
 		}
 	}
-	wrefresh(debug_win);
+	wrefresh(debugscr);
 }
 
 static void update_screen() {
 	int i;
-	werase(screen_win);
+	werase(machine.screen);
 	for (i = 0; i < SCREEN_ROWS; i++) {
-		mvwaddnstr(screen_win, i, 0,
+		mvwaddnstr(machine.screen, i, 0,
 			   addr2caddr(SCREEN_START + i*SCREEN_COLS),
 			   SCREEN_COLS);
 	}
-	wrefresh(screen_win);
+	wrefresh(machine.screen);
 }
+
+
+/* the VM run loop */
 
 static void run() {
 	operation *op;
 	uint32_t ip;
 	int r;
 	for (;;) {
-		if (debug_win != NULL) {
-			print_mem();
+		/* update screens */
+		if (debugscr != NULL) {
+			update_debugscr();
 		}
 		update_screen();
-		nanosleep(&delay, NULL);
+
+		/* delay, if specified */
+		nanosleep(&config.delay, NULL);
+
+		/* read the IP */
 		ip = indirect(0, uint32_t);
+
+		/* check that the IP is pointing to existing memory */
 		r = check_brk(ip + sizeof(operation));
 		if (r != 0) {
 			fatal("Invalid IP: %u\n", ip);
 		}
+		/* read the operation */
 		op = (operation *) (machine.mem + ip);
+		/* validate the operation and its arguments */
 		validate_op(op->op, caddr2addr(&op->op));
 		validate_arg(op->dst.u, op->dst_type,
 			     caddr2addr(&op->dst.u),
@@ -533,14 +589,17 @@ static void run() {
 			if (op->dst_type == 'F'
 			    || op->dst_type == 'f'
 			    || op->dst_type == 'd') {
-				fatal("Invalid type at %u: %c. Floating"
+				fatal("%u:Invalid type at %u: %c. Floating"
 				      " type cannot be used with bitwise"
 				      " operator %c\n",
-				      caddr2addr(&op->dst_type), op->dst_type, op->op);
+				      ip, caddr2addr(&op->dst_type),
+				      op->dst_type, op->op);
 			}
 			break;
 		}
+		/* advance the IP */
 		indirect(0, uint32_t) = ip + sizeof(operation);
+		/* perform the operation */
 		switch (op->op) {
 		case '_':
 			/* No-op */
@@ -552,7 +611,8 @@ static void run() {
 		case '@':
 			memmove(addr2caddr(valaddr(op->dst, op->dst_type)),
 				addr2caddr(valaddr(op->src1, op->src1_type)),
-				valsize(op->dst_type) * val(op->src2, op->src2_type, uint32_t));
+				valsize(op->dst_type)
+				  * val(op->src2, op->src2_type, uint32_t));
 			break;
 		case '!':
 			unary_op_nofloat(op, ~);
@@ -590,18 +650,19 @@ static void run() {
 		case '%':
 			switch (op->dst_type) {
 			case 'F':
-				op->dst.f = fmodf(val(op->src1, op->src1_type, float),
-						  val(op->src2, op->src2_type, float));
+				op->dst.f
+				  = fmodf(val(op->src1, op->src1_type, float),
+					  val(op->src2, op->src2_type, float));
 				break;
 			case 'f':
 				indirect(op->dst.u, float)
-					= fmodf(val(op->src1, op->src1_type, float),
-						val(op->src2, op->src2_type, float));
+				  = fmodf(val(op->src1, op->src1_type, float),
+					  val(op->src2, op->src2_type, float));
 				break;
 			case 'd':
 				indirect(op->dst.u, double)
-					= fmod(val(op->src1, op->src1_type, double),
-					       val(op->src2, op->src2_type, double));
+				  = fmod(val(op->src1, op->src1_type, double),
+					 val(op->src2, op->src2_type, double));
 				break;
 			default:
 				binary_op_nofloat(op, %);
@@ -614,11 +675,14 @@ static void run() {
 	}
 }
 
+/* arguments and file loading */
+
 static void usage() {
-	fatal("%s [-d delay] [-g] [-l location] file [[-l location] file] ...\n", argv0);
+	fatal("%s [-d delay] [-g] [-l location] file [[-l location] file] ...\n",
+	      argv0);
 }
 
-#define CHUNK_SIZE 4096
+#define FILE_CHUNK 4096
 
 static void load_file(uint32_t *mem_cursor, char *filename) {
 	FILE *f;
@@ -626,21 +690,22 @@ static void load_file(uint32_t *mem_cursor, char *filename) {
 	fprintf(stderr, "Loading %s at %u\n", filename, *mem_cursor);
 	f = fopen(filename, "r");
 	if (f == NULL) {
-		fatal("Couldn't open file \"%s\": %s", filename, strerror(errno));
+		fatal("Couldn't open file \"%s\": %s\n",
+		      filename, strerror(errno));
 	}
 	for (;;) {
-		if (check_brk(*mem_cursor + CHUNK_SIZE) != 0) {
-			fatal("Could not create memory for file \"%s\" at %u",
-			      filename, *mem_cursor + CHUNK_SIZE);
+		if (check_brk(*mem_cursor + FILE_CHUNK) != 0) {
+			fatal("Could not create memory for file \"%s\" at %u\n",
+			      filename, *mem_cursor + FILE_CHUNK);
 		}
-		r = fread(addr2caddr(*mem_cursor), 1, CHUNK_SIZE, f);
+		r = fread(addr2caddr(*mem_cursor), 1, FILE_CHUNK, f);
 		*mem_cursor += r;
-		if (r != CHUNK_SIZE) {
+		if (r != FILE_CHUNK) {
 			if (feof(f)) {
 				fclose(f);
 				return;
 			} else if (ferror(f)) {
-				fatal("Couldn't read from file \"%s\": %s",
+				fatal("Couldn't read from file \"%s\": %s\n",
 				      filename, strerror(errno));
 			}
 		}
@@ -649,19 +714,22 @@ static void load_file(uint32_t *mem_cursor, char *filename) {
 
 int main(int argc, char **argv) {
 	uint32_t mem_cursor = 0;
-	bool wait_set = false;
-	double wait, wait_f;
+	bool delay_set = false, debug = false;
+	double delay, delay_f;
 
+	/* parse arguments and load files */
 	ARGBEGIN {
 	case 'l':
 		mem_cursor = atoi(EARGF(usage()));
 		break;
 	case 'd':
 		// set delay
-		wait_f = modf(atof(EARGF(usage())), &wait);
-		delay.tv_sec = (typeof(delay.tv_sec))wait;
-		delay.tv_nsec = (typeof(delay.tv_nsec))(wait_f*1000000000.0f);
-		wait_set = true;
+		delay_f = modf(atof(EARGF(usage())), &delay);
+		config.delay.tv_sec
+			= (typeof(config.delay.tv_sec))delay;
+		config.delay.tv_nsec
+			= (typeof(config.delay.tv_nsec))(delay_f*1000000000.0f);
+		delay_set = true;
 		break;
 	case 'g':
 		// enter debugging mode
@@ -673,31 +741,38 @@ int main(int argc, char **argv) {
 		load_file(&mem_cursor, argv[0]);
 	} ARGEND;
 
+	/* initialize curses */
 	initscr(); curs_set(0); cbreak(); noecho(); clear();
-	screen_win = stdscr;
-	debug_win = NULL;
+	machine.screen = stdscr;
+	debugscr = NULL;
+	/* set up debugging */
 	if (debug) {
-		// set wait time
-		if (!wait_set) {
-			delay.tv_sec = DEBUG_WAIT;
+		// set delay time
+		if (!delay_set) {
+			config.delay.tv_sec = DEBUG_DEFAULT_WAIT;
 		}
 		// split into two windows, if possible
-		if (getmaxx(stdscr) > SCREEN_COLS + DEBUG_COLS) {
+		if (getmaxx(stdscr) > SCREEN_COLS + DEBUG_SCREEN_COLS) {
 			// vertical windows
-			screen_win = newwin(getmaxy(stdscr), SCREEN_COLS,
-					    0, 0);
-			debug_win = newwin(getmaxy(stdscr), DEBUG_COLS,
-					   0, getmaxx(stdscr) - DEBUG_COLS);
+			machine.screen = newwin(getmaxy(stdscr), SCREEN_COLS,
+						0, 0);
+			debugscr = newwin(getmaxy(stdscr),
+					  DEBUG_SCREEN_COLS, 0,
+					  getmaxx(stdscr) - DEBUG_SCREEN_COLS);
 		} else if (getmaxy(stdscr) > SCREEN_ROWS) {
 			// horizontal windows
-			screen_win = newwin(SCREEN_ROWS, getmaxx(stdscr),
-					    0, 0);
-			debug_win = newwin(getmaxy(stdscr) - SCREEN_ROWS - 1,
-					   getmaxx(stdscr),
-					   SCREEN_ROWS + 1, 0);
+			machine.screen = newwin(SCREEN_ROWS, getmaxx(stdscr),
+						0, 0);
+			debugscr = newwin(getmaxy(stdscr) - SCREEN_ROWS - 1,
+					  getmaxx(stdscr),
+					  SCREEN_ROWS + 1, 0);
 		}
 	}
+	/* run the vm */
 	run();
+	/* wait for a key press */
+	wgetch(machine.screen);
+	/* tear down curses */
 	endwin();
 
 	exit(EXIT_SUCCESS);

@@ -1,4 +1,16 @@
 %{
+/************************************************************************
+ * neasm.l Assembler for nevm                                           *
+ *                                                                      *
+ * The approach taken here is extremely simplified.                     *
+ *  * White space is ignored.                                           *
+ *  * Any "symbol:" will create a symbol that represents the address of *
+ *    the object following it.                                          *
+ *  * Any "symbol" will be replaced by a 32-bit representation of the   *
+ *    address the symbol represents.                                    *
+ *  * Everything else is simply entered into the output file, aligned   *
+ *    properly.                                                         *
+ ************************************************************************/
 
 #include <stdint.h>
 #include <stdio.h>
@@ -77,11 +89,20 @@ static int cursor;
 	cursor += sizeof(ast[ast_len].data.t);				\
 } while (0)
 
-#define ast_append_op(v) do {						\
+#define ast_append_op(v, arity) do {					\
 	ensure_ast();							\
 	ast_align(16);							\
 	memset(&ast[ast_len], 0, sizeof(lexeme));			\
-	memcpy(ast[ast_len].data.op, v, 4);				\
+	memcpy(ast[ast_len].data.op, v, arity+1);			\
+	switch(arity) {							\
+	case 0:								\
+		ast[ast_len].data.op[1] = 'U';				\
+	case 1:								\
+		ast[ast_len].data.op[2] = 'U';				\
+	case 2:								\
+		ast[ast_len].data.op[3] = 'U';				\
+	default: ;							\
+	}								\
 	ast[ast_len].size = 4;						\
 	ast[ast_len].lineno = lineno;					\
 	ast_len++;							\
@@ -121,7 +142,9 @@ static int cursor;
 
 %x QUOTE
 
-OP					[_=@!&\|\^<>~\+\-\*\/%#]
+OP3					[@&\|\^<>+\-\*\/%]
+OP2					[=!~]
+OP0					[_#]
 TYPE					[UIFzlduifhscb]
 ID					[^ \t\v\f\r\n;:_=@!&\|\^<>~\+\-\*\/%#"0-9][^ \t\v\f\r\n;:=@!&\|\^<>~\+\-\*\/%#"]*
 DEC					[1-9][0-9]*|0[0-9]*[8-9][0-9]*
@@ -153,9 +176,14 @@ SPACE					[ \t\v\f]
 <QUOTE>\r				{ ast_append(c, '\r'); lineno++; }
 <QUOTE>\n				{ ast_append(c, '\n'); lineno++; }
 <QUOTE>[^"\\\r\n]			{ ast_append(c, *((uint8_t *) yytext)); }
-<QUOTE><<EOF>>				{ fatal("%s:%d:Unterminated quote", infile, qslineno); }
+<QUOTE><<EOF>>				{ fatal("%s:%d:Unterminated quote\n", infile, qslineno); }
 
-{OP}{TYPE}{TYPE}{TYPE}			{ ast_append_op(yytext); }
+{OP3}{TYPE}{TYPE}{TYPE}			{ ast_append_op(yytext, 3); }
+{OP2}{TYPE}{TYPE}			{ ast_append_op(yytext, 2); }
+{OP0}					{ ast_append_op(yytext, 0); }
+{OP3}{TYPE}{TYPE}{TYPE}{TYPE}+		{ fatal("%s:%d:Incorrect number of type indicators\n", infile, lineno); }
+{OP2}{TYPE}{TYPE}{TYPE}+		{ fatal("%s:%d:Incorrect number of type indicators\n", infile, lineno); }
+{OP0}{TYPE}+				{ fatal("%s:%d:Incorrect number of type indicators\n", infile, lineno); }
 
 {FLOAT}					{ ast_append(d, strtod(yytext, NULL)); }
 {FLOAT}f				{ ast_append(f, strtof(yytext, NULL)); }
@@ -286,6 +314,9 @@ int main(int argc, char **argv) {
 	yylex();
 	fclose(in);
 
+	/* align final bytes of AST */
+	ast_align(16);
+
 	/* Create symbol table */
 	if(!hcreate(SYMT_LEN)) {
 		fatal("Could not create symbol table: %s\n", strerror(errno));
@@ -304,7 +335,8 @@ int main(int argc, char **argv) {
 			hq.data = (void *) (uintptr_t) cursor;
 			hr = hsearch(hq, ENTER);
 			if (hr == NULL) {
-				fatal("Symbol table full\n");
+				fatal("%s:%d:Exceeded %d symbols\n",
+				      infile, ast[i].lineno, SYMT_LEN);
 			}
 		}
 	}
