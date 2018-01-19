@@ -723,7 +723,7 @@ int main(int argc, char **argv) {
 		mem_cursor = atoi(EARGF(usage()));
 		break;
 	case 'd':
-		// set delay
+		/* set delay */
 		delay_f = modf(atof(EARGF(usage())), &delay);
 		config.delay.tv_sec
 			= (typeof(config.delay.tv_sec))delay;
@@ -732,7 +732,7 @@ int main(int argc, char **argv) {
 		delay_set = true;
 		break;
 	case 'g':
-		// enter debugging mode
+		/* enter debugging mode */
 		debug = true;
 		break;
 	default:
@@ -741,26 +741,31 @@ int main(int argc, char **argv) {
 		load_file(&mem_cursor, argv[0]);
 	} ARGEND;
 
+	if (machine.brk == 0) {
+		/* nothing was loaded */
+		usage();
+	}
+
 	/* initialize curses */
 	initscr(); curs_set(0); cbreak(); noecho(); clear();
 	machine.screen = stdscr;
 	debugscr = NULL;
 	/* set up debugging */
 	if (debug) {
-		// set delay time
+		/* set delay time */
 		if (!delay_set) {
 			config.delay.tv_sec = DEBUG_DEFAULT_WAIT;
 		}
-		// split into two windows, if possible
+		/* split into two windows, if possible */
 		if (getmaxx(stdscr) > SCREEN_COLS + DEBUG_SCREEN_COLS) {
-			// vertical windows
+			/* vertical windows */
 			machine.screen = newwin(getmaxy(stdscr), SCREEN_COLS,
 						0, 0);
 			debugscr = newwin(getmaxy(stdscr),
 					  DEBUG_SCREEN_COLS, 0,
 					  getmaxx(stdscr) - DEBUG_SCREEN_COLS);
 		} else if (getmaxy(stdscr) > SCREEN_ROWS) {
-			// horizontal windows
+			/* horizontal windows */
 			machine.screen = newwin(SCREEN_ROWS, getmaxx(stdscr),
 						0, 0);
 			debugscr = newwin(getmaxy(stdscr) - SCREEN_ROWS - 1,
