@@ -1,0 +1,46 @@
+=====================
+= Assembly Language =
+=====================
+
+The assembly language, neasm, has a very simple semantics. Whenever a datum
+appears in the source file, it is output to the assembled file. Whenever an
+operation appears in the source file, it is output to the assembled file.
+Whenever a symbol appears in the source file, the address it represents
+appears in the output file. Any symbol followed by a colon designates the
+symbol as representing the address of the datum or operation which follows it.
+All items are aligned to their appropriate boundaries, and are output in the
+order in which they occur. As such, there is very little syntax, or rather,
+all syntax appears on-the-fly in the virtual machine's interpretation of the
+program. The following are the lexemes which may appear in an assembly
+language file.
+
+NL			(\r\n?|\n)
+SPACE			[ \t\v\f]|{NL}
+COMMENT			;{^NL}*{NL}
+
+OP3			[@&\|\^<>+\-\*\/%]
+OP2			[=!~]
+OP0			[_#]
+TYPE			[UIFzlduifhscb]
+OPERATION		{OP3}{TYPE}{TYPE}{TYPE}|{OP2}{TYPE}{TYPE}|{OP0}
+
+DEC			[+-]?[1-9][0-9]*|0[0-9]*[8-9][0-9]*
+OCT			[+-]?0[0-7]*
+HEX			[+-]?0x[0-9a-fA-F]+
+BIN			[+-]?0b[0-1]+
+INT32			{DEC}|{OCT}|{HEX}|{BIN}
+INT64			{INT32}L
+INT16			{INT32}S
+INT8			{INT32}SS
+INT			{INT8}|{INT16}|{INT32}|{INT64}
+
+DOUBLE			[+-]?([0-9]+\.[0-9]+([Ee][+-]?[0-9]+)?|NAN|INFINITY)
+SINGLE			{DOUBLE}f
+FLOAT			{DOUBLE}|{SINGLE}
+
+NUMBER			{INT}|{FLOAT}
+
+QUOTE			"([^"]|\\")*"
+
+SYMBOL			[^ \t\v\f\r\n;:_=@!&\|\^<>~\+\-\*\/%#"0-9][^ \t\v\f\r\n;:=@!&\|\^<>~\+\-\*\/%#"]*
+SYMBOLSET		{SYMBOL}:

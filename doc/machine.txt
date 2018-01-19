@@ -2,9 +2,14 @@
 = Instruction Format =
 ======================
 
-Each instruction consists of 4 bytes and 3 32-bit values, for a total of 16 bytes.
-The values are: destination, arg1, arg2.
-The instruction consists of an action, then a type for each value. In US Ascii:
+Each instruction consists of 4 bytes and 0-3 32-bit values, for a maximum
+length of 16 bytes. No matter how many values a given instruction takes, it
+will always be aligned on a 16 byte boundary in the memory. The values, when
+present, are always in the form: destination, arg1, [arg2]. The instruction
+consists of one byte designating an action, then one byte designating a type,
+for each value. If less than three values are used, unused values are
+designated with 'U', although this can be omitted in the assembly. In US
+Ascii:
 
 '_' No-op
 '=' Set
@@ -42,14 +47,44 @@ Indirect
 
 Examples:
 
+	+iii 12 4 8		; Add the contents of memory location 4,
+				; interpreted as a signed integer, to the
+				; contents of memory location 8, again
+				; interpreted as a signed integer. Store the
+				; result in memory location 12.
+
+
+	-fiI 12 4 8		; Subtract the number 8 from the contents of
+				; memory location 4. Interpret these as
+				; integers, but convert to floating point.
+				; Store the result as floating point in
+				; location 12.
+
+	*FFi 1.2f 4.5f 8	; Multiply 4.5 by the contents of memory
+				; location 8, interpreted as an integer.
+				; memory location 4. Interpret these as
+				; integers, but convert to floating point.
+				; Store the result as floating point in the
+				; destination field of this operation,
+				; overwriting 1.2f.
+
+
 =================
 = Memory Layout =
 =================
 
 The machine has a completely flat memory layout in which code and data are
-freely mixed. All state of the machine, including its input and output, are
-stored in the memory.
+freely mixed. All state of the machine, including the instruction pointer as
+well as any input and output, are stored in the memory.
 
-Location 0x0-0x4: IP - the instruction pointer.
+At the moment, there are only two special regions of the memory.
 
-Location 0xF000-0xF7d0: the screen lies here.
+Location 0x0-0x4:	IP - the instruction pointer. This designates the
+			location of the next instruction to be acted upon. It
+			is automatically incremented just before acting on the
+			instruction.
+
+Location 0xF000-0xF7d0: Screen - anything stored here is printed on the 80x25
+			virtual screen. On any line, a zero will abort the
+			print and move to the next line, ignoring the
+			remaining contents.

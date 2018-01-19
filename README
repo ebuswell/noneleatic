@@ -1,0 +1,97 @@
+============
+= Overview =
+============
+
+The Noneleatic Languages are a series of languages, of which only the first
+two exist so far, which swerve away from the programming languages and
+philosophy of programming of mainstream computer science. The history of
+computing and computer science is completely suffused with an anxiety about
+the possibility of code changing state. Almost every mainstream innovation in
+computing languages can be seen in this light (although there are other things
+going on as well), from the invention of the conditional branch statement in
+the formation of the edvac---a way to keep possibilities in the variables,
+rather than the code---to the formation of structured programming, and later
+object oriented programming. The noneleatic languages, instead, insist that as
+state changes, code ought to change too. Rather than a double realm of
+code xor state, the noneleatic languages imagine code and state together.
+
+This repository contains C code for two programs: nevm and neasm, a virtual
+machine and an assembler. nevm is a virtual machine with no branching control,
+but with strict enough encoding that it is (relatively!) easy to rewrite the
+program. neasm is an assembler which produces code for nevm. See the
+documentation in doc/ and the example programs in examples/.
+
+
+===========================
+= Building and Installing =
+===========================
+
+To build:
+
+cp config.def.mk config.mk
+make
+
+Edit config.mk to match your system, if necessary.
+
+Installation is not necessary to run the programs. However, if you want to
+install, type:
+
+make install
+
+To compile the example programs, run:
+
+make examples
+
+See the Makefile for other potential make targets.
+
+
+===========
+= Running =
+===========
+
+neasm [-o outfile] file
+
+Assemble "file" for running with nevm. If file is omitted or "-", reads from
+stdin.
+
+Options:
+ -o outfile	Write assembler output to outfile instead of stdout.
+
+./nevm [-d delay] [-g] [-l location] file [[-l location] file] ...
+
+Load file(s) into memory at the specified locations, then start the virtual
+machine. When the virtual machine terminates, it will wait for a keypress
+before exiting. To exit the virtual machine at any time, press CTRL-C.
+
+Options:
+ -g		Enter debug mode. Debug mode displays the memory layout of the
+		virtual machine and delays the execution of each operation by
+		2 seconds.
+
+ -d delay	Delay the execution of each operation by the specified number
+		of seconds. Overrides the delay for -g.
+
+ -l location	Load the file at the given location in memory. If unspecified,
+		all files will be loaded contiguously in memory, beginning
+		at location 0.
+
+
+========================
+= Running the Examples =
+========================
+
+Here are the suggested ways to run the examples.
+
+The branch example can be a little tricky to follow, so I recommend running it
+a few times with 10 second delay until you see what's going on.
+
+./nevm -g -d 10 branch
+
+The hello world has a lot of looping, so run it with a short delay to stay
+sane.
+
+./nevm -g -d 0.1 helloworld
+
+tenprint will loop endlessly. No reason not to run it as quickly as possible.
+
+./nevm -g -d 0 tenprint
