@@ -10,7 +10,7 @@ txt:	"hello, world\0"	; the text to copy
 
 start:
 ; first, test if the character pointed to by ptr is zero
-	-IIi CMP: 0 0 ptr: txt		; subtract pointer from zero
+	-IIc CMP: 0 0 ptr: txt		; subtract pointer from zero
 	>IiI NMASK: 0 CMP 31		; shift sign bit
 	!Uu MASK: 0 NMASK		; negate
 	&UuU HALT: "#UUU" MASK "#UUU"	; mask the halt instruction
