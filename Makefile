@@ -57,20 +57,23 @@ clean:
 	rm -f ${NEASM_GEN_SRCS}
 	rm -f ${TESTOBJS}
 	rm -f unittest
-	rm -f helloworld branch tenprint
+	rm -f helloworld branch tenprint fibonacci
 
 .PHONY: check
 check: unittest
 	./unittest
 
 .PHONY: examples
-examples: branch helloworld tenprint
+examples: branch helloworld tenprint fibonacci
 
 branch: examples/branch.s neasm
 	./neasm -o branch examples/branch.s
 
 helloworld: examples/helloworld.s neasm
 	./neasm -o helloworld examples/helloworld.s
+
+fibonacci: examples/fibonacci.s neasm
+	./neasm -o fibonacci examples/fibonacci.s
 
 tenprint: examples/tenprint.s neasm
 	./neasm -o tenprint examples/tenprint.s

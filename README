@@ -95,3 +95,9 @@ sane.
 tenprint will loop endlessly. No reason not to run it as quickly as possible.
 
 ./nevm -g -d 0 tenprint
+
+fibonacci calculates the fibonacci numbers using simple recursion, and so
+takes O(fib n) time to calculate the nth number. Skip the debug output to have
+another number or two appear before you're waiting forever.
+
+./nevm fibonacci
