@@ -159,7 +159,7 @@ static int check_brk(uint32_t addr) {
 
 static void assert_brk(uint32_t addr, uint32_t addr_addr) {
 	if (check_brk(addr) != 0) {
-		fatal("%u:Could not create memory for address at %u: %u\n",
+		fatal("0x%x:Could not create memory for address at 0x%x: 0x%x\n",
 		      indirect(0, uint32_t), addr_addr, addr);
 	}
 }
@@ -214,7 +214,7 @@ static void validate_arg(uint32_t addr, char arg_type,
 		assert_brk(addr + 1, addr_addr);
 		break;
 	default:
-		fatal("%u:Invalid type at %u: %c\n",
+		fatal("0x%x:Invalid type at 0x%x: %c\n",
 		      indirect(0, uint32_t), arg_type_addr, arg_type);
 	}
 }
@@ -245,7 +245,7 @@ static bool is_op(char op) {
 
 static void validate_op(char op, uint32_t op_addr) {
 	if (!is_op(op)) {
-		fatal("%u:Invalid operation at %u: %c\n",
+		fatal("0x%x:Invalid operation at 0x%x: %c\n",
 		      indirect(0, uint32_t), op_addr, op);
 	}
 }
@@ -553,7 +553,7 @@ static void run() {
 		/* check that the IP is pointing to existing memory */
 		r = check_brk(ip + sizeof(operation));
 		if (r != 0) {
-			fatal("Invalid IP: %u\n", ip);
+			fatal("Invalid IP: 0x%x\n", ip);
 		}
 		/* read the operation */
 		op = (operation *) (machine.mem + ip);
@@ -589,7 +589,7 @@ static void run() {
 			if (op->dst_type == 'F'
 			    || op->dst_type == 'f'
 			    || op->dst_type == 'd') {
-				fatal("%u:Invalid type at %u: %c. Floating"
+				fatal("0x%x:Invalid type at 0x%x: %c. Floating"
 				      " type cannot be used with bitwise"
 				      " operator %c\n",
 				      ip, caddr2addr(&op->dst_type),
