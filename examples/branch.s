@@ -20,8 +20,8 @@ start:
 ; this instruction, JMP contains 0x20 or 0.
 	&UuU JMP: 0 MASK 0x40
 ; jump to the appropriate place by adding BGTE, the target when C1 is greater
-; than or equal to C2, with JMP, which advances IP two instructions past BGTE,
-; to BLT, if C1 is less than C2.
+; than or equal to C2, with JMP, which advances IP four instructions past
+; BGTE, to BLT, if C1 is less than C2.
 	+uuU IP JMP BGTE
 BGTE:
 ; print out Greater Than 
