@@ -36,7 +36,7 @@ Edit config.mk to match your system, if necessary.
 Installation is not necessary to run the programs. However, if you want to
 install, type:
 
-make install
+sudo make install
 
 To compile the example programs, run:
 
