@@ -18,7 +18,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <search.h>
-#include <math.h>
 #include <ctype.h>
 #include "arg.h"
 

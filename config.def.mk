@@ -11,6 +11,6 @@ LEXFLAGS=-8 -X
 CFLAGS+=-Wall -Wextra -Wmissing-prototypes -Wredundant-decls
 CFLAGS+=-Iinclude
 
-NEVM_LIBS?=-lcurses
+NEVM_LIBS?=-lcurses -lm
 NEASM_LIBS?=-ll
 TESTLIBS?=
